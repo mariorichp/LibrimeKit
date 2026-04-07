@@ -1,37 +1,43 @@
-name: Build LibrimeKit
+name: Build LibrimeKit (arm64 simulator)
 on:
   workflow_dispatch:
   push:
     branches:
       - main
-    tags:
-      - 'v*'
+      - arm64sim
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-14
+    timeout-minutes: 120
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Install Dependencies
+        run: |
+          brew install cmake
+          sudo gem install cocoapods
 
       - name: Build Boost
         run: |
           make boost-build
 
-      - name: Build Librime
+      - name: Build Librime (with arm64 simulator)
         run: |
-          make librime-build
+          chmod +x librimeBuild_arm64sim.sh
+          bash librimeBuild_arm64sim.sh
 
       - name: Make Archive
         run: |
           tar -acf Frameworks.tgz Frameworks
 
       - name: Upload Archive
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: librimekit-frameworks
+          name: librimekit-frameworks-arm64sim
           path: Frameworks.tgz
 
       - name: Create Release
