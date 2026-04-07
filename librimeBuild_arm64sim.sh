@@ -15,7 +15,7 @@ fi
 
 # Install lua plugin
 rm -rf ${RIME_ROOT}/librime/plugins/lua
-${RIME_ROOT}/librime/install-plugins.sh imfuxiao/librime-lua@main
+${RIME_ROOT}/librime/install-plugins.sh imfuxiao/librime-lua@master
 rm -rf ${RIME_ROOT}/librime/src/rime/lua && \
   mkdir ${RIME_ROOT}/librime/src/rime/lua && \
   cp -R ${RIME_ROOT}/librime/plugins/lua/src/* ${RIME_ROOT}/librime/src/rime/lua && \
