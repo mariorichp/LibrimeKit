@@ -4,6 +4,7 @@ mkfile_dir := $(dir $(mkfile_path))
 COCOAPODS_EXISTS:=$(shell gem list -i cocoapods)
 
 BOOST_FRAMEWORK_PATH=boost-iosx/frameworks
+BOOST_BUILD_PLATFORMS=ios,iossim-both
 
 .PHONY: cocoapads boost-build boost-clean librime-check librime-build librime-clean
 
@@ -18,7 +19,7 @@ endif
 
 boost-build: cocoapods
 	$(info boost build begin)
-	${MAKE} -C boost-iosx build
+	cd boost-iosx && ./scripts/build.sh -p=${BOOST_BUILD_PLATFORMS}
 	mkdir -p Frameworks && \
 		cp -rf ${BOOST_FRAMEWORK_PATH}/boost_atomic.xcframework Frameworks && \
 		cp -rf ${BOOST_FRAMEWORK_PATH}/boost_filesystem.xcframework Frameworks && \

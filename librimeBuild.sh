@@ -11,20 +11,143 @@ git submodule update --init
 
 if [[ ! -f ${RIME_ROOT}/librime.patch.apply ]]
 then
+    git apply --check ${RIME_ROOT}/librime.patch
+    git apply ${RIME_ROOT}/librime.patch
     touch ${RIME_ROOT}/librime.patch.apply
-    git apply ${RIME_ROOT}/librime.patch >/dev/null 2>&1
 fi
+
+fix_glog_for_cmake4() {
+  local cmake_policy_file="${RIME_ROOT}/librime/deps/glog/cmake/GetCacheVariables.cmake"
+
+  if [[ -f "${cmake_policy_file}" ]]; then
+    perl -0pi -e 's/cmake_policy \(VERSION 3\.3\)/cmake_policy (VERSION 3.5)/' "${cmake_policy_file}"
+  fi
+}
+
+fix_deps_for_cmake4() {
+  local deps_mk="${RIME_ROOT}/librime/deps.mk"
+  local python3_bin
+
+  python3_bin="$(xcrun --find python3 2>/dev/null || command -v python3)"
+
+  if [[ -f "${deps_mk}" ]]; then
+    perl -0pi -e 's/\n\t-DCMAKE_POLICY_VERSION_MINIMUM=3\.5 \\\n/\n/g' "${deps_mk}"
+    perl -0pi -e 's/\n\t-DPYTHON_EXECUTABLE:FILEPATH=[^\n]+ \\\n/\n/g' "${deps_mk}"
+    perl -0pi -e 's/\n\t-DHAVE_CRC32C=0 \\\n/\n/g' "${deps_mk}"
+    perl -0pi -e 's/\n\t-DHAVE_SNAPPY=0 \\\n/\n/g' "${deps_mk}"
+    perl -0pi -e 's/\n\t-DHAVE_TCMALLOC=0 \\\n/\n/g' "${deps_mk}"
+    perl -0pi -e 's/-DCMAKE_BUILD_TYPE:STRING="Release" \\\n\t/-DCMAKE_BUILD_TYPE:STRING="Release" \\\n\t-DCMAKE_POLICY_VERSION_MINIMUM=3.5 \\\n\t/g' "${deps_mk}"
+    perl -0pi -e "s|-DCMAKE_INSTALL_PREFIX:PATH=\"\\$\\(rime_root\\)\" \\\\\\n\\t|-DCMAKE_INSTALL_PREFIX:PATH=\"\\$\\(rime_root\\)\" \\\\\\n\\t-DPYTHON_EXECUTABLE:FILEPATH=${python3_bin} \\\\\\n\\t|g" "${deps_mk}"
+    perl -0pi -e 's/-DLEVELDB_BUILD_TESTS:BOOL=OFF \\\n\t/-DLEVELDB_BUILD_TESTS:BOOL=OFF \\\n\t-DHAVE_CRC32C=0 \\\n\t-DHAVE_SNAPPY=0 \\\n\t-DHAVE_TCMALLOC=0 \\\n\t/g' "${deps_mk}"
+  fi
+}
+
+fix_xcode_deployment_target() {
+  local xcode_mk="${RIME_ROOT}/librime/xcode.mk"
+
+  if [[ -f "${xcode_mk}" ]]; then
+    perl -0pi -e 's/\n\t-DDEPLOYMENT_TARGET=\$\(MINVERSION\) \\\n/\n/g' "${xcode_mk}"
+    perl -0pi -e 's/-DPLATFORM=\$\(PLATFORM\) \\\n\t/-DPLATFORM=\$\(PLATFORM\) \\\n\t-DDEPLOYMENT_TARGET=\$\(MINVERSION\) \\\n\t/g' "${xcode_mk}"
+    perl -0pi -e "s/RIME_CMAKE_FLAGS='\\$\\(IOS_CROSS_COMPILE_CMAKE_FLAGS\\)'/RIME_CMAKE_FLAGS='\\$\\(XCODE_IOS_CROSS_COMPILE_CMAKE_FLAGS\\)'/g" "${xcode_mk}"
+  fi
+}
+
+fix_opencc_for_ios() {
+  local opencc_tools_cmake="${RIME_ROOT}/librime/deps/opencc/src/tools/CMakeLists.txt"
+  local opencc_data_cmake="${RIME_ROOT}/librime/deps/opencc/data/CMakeLists.txt"
+
+  if [[ -f "${opencc_tools_cmake}" ]]; then
+    perl -0pi -e 's/^if\(CMAKE_SYSTEM_NAME STREQUAL "iOS"\)\n  return\(\)\nendif\(\)\n\n//m' "${opencc_tools_cmake}"
+    perl -0pi -e 's/^# Executables\n/# Executables\n\nif(CMAKE_SYSTEM_NAME STREQUAL "iOS")\n  return()\nendif()\n\n/m' "${opencc_tools_cmake}"
+  fi
+
+  if [[ -f "${opencc_data_cmake}" ]]; then
+    if rg -q '^set\(OPENCC_DICT_BIN opencc_dict\)$' "${opencc_data_cmake}"; then
+      perl -0pi -e 's/^set\(OPENCC_DICT_BIN opencc_dict\)$/if(TARGET opencc_dict)\n  set(OPENCC_DICT_BIN \$<TARGET_FILE:opencc_dict>)\nelseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")\n  set(OPENCC_DICT_BIN "\${CMAKE_INSTALL_PREFIX}\/bin\/opencc_dict")\nelse()\n  set(OPENCC_DICT_BIN opencc_dict)\nendif()/m' "${opencc_data_cmake}"
+    fi
+
+    if rg -q '\$<TARGET_FILE_DIR:\$\{OPENCC_DICT_BIN\}>' "${opencc_data_cmake}"; then
+      perl -0pi -e 's/\nadd_custom_target\(\n  copy_libopencc_to_dir_of_opencc_dict\n  COMMENT\n    "Copying libopencc to directory of opencc_dict"\n  COMMAND\n    \$\{CMAKE_COMMAND\} -E copy "\$<TARGET_FILE:libopencc>" "\$<TARGET_FILE_DIR:\$\{OPENCC_DICT_BIN\}>"\n\)\nif \(WIN32\)\n  set\(DICT_WIN32_DEPENDS copy_libopencc_to_dir_of_opencc_dict\)/\nif (WIN32 AND TARGET opencc_dict)\n  add_custom_target(\n    copy_libopencc_to_dir_of_opencc_dict\n    COMMENT\n      "Copying libopencc to directory of opencc_dict"\n    COMMAND\n      \${CMAKE_COMMAND} -E copy "\$<TARGET_FILE:libopencc>" "\$<TARGET_FILE_DIR:opencc_dict>"\n  )\n  set(DICT_WIN32_DEPENDS copy_libopencc_to_dir_of_opencc_dict)/s' "${opencc_data_cmake}"
+    fi
+  fi
+}
+
+fix_boost_compat() {
+  local customizer="${RIME_ROOT}/librime/src/rime/lever/customizer.cc"
+  local deployment_tasks="${RIME_ROOT}/librime/src/rime/lever/deployment_tasks.cc"
+
+  if [[ -f "${customizer}" ]]; then
+    perl -0pi -e 's/fs::copy_option::overwrite_if_exists/fs::copy_options::overwrite_existing/g' "${customizer}"
+  fi
+
+  if [[ -f "${deployment_tasks}" ]]; then
+    perl -0pi -e 's/fs::copy_option::overwrite_if_exists/fs::copy_options::overwrite_existing/g' "${deployment_tasks}"
+  fi
+}
 
 # install lua plugin
 # TODO: 这里是临时解决方案. 非librime官方方法.
 # 可能是个人能力问题, 使用官方的方法始终无法加载lua模块. 临时使用此方法. 希望以后可以解决这个问题.
 # 注意: 改写代码后发现 gear 模块也无法加载. 所以代码中同时将gear模块添加进去.
 rm -rf ${RIME_ROOT}/librime/plugins/lua
-${RIME_ROOT}/librime/install-plugins.sh imfuxiao/librime-lua@main
+${RIME_ROOT}/librime/install-plugins.sh imfuxiao/librime-lua@master
 rm -rf ${RIME_ROOT}/librime/src/rime/lua && \
   mkdir ${RIME_ROOT}/librime/src/rime/lua && \
   cp -R ${RIME_ROOT}/librime/plugins/lua/src/* ${RIME_ROOT}/librime/src/rime/lua && \
   rm -rf ${RIME_ROOT}/librime/plugins/lua
+
+prepare_boost_root() {
+    local slice="$1"
+    local boost_root="${RIME_ROOT}/.boost/${slice}"
+    local libs=("boost_atomic" "boost_filesystem" "boost_regex" "boost_system")
+
+  rm -rf "${boost_root}"
+  mkdir -p "${boost_root}/include" "${boost_root}/lib"
+  cp -R "${RIME_ROOT}/boost-iosx/boost/boost" "${boost_root}/include/"
+
+  for lib in "${libs[@]}"; do
+    local src="${RIME_ROOT}/boost-iosx/frameworks/${lib}.xcframework/${slice}/lib${lib}.a"
+    if [[ ! -f "${src}" ]]; then
+      echo "Missing Boost slice: ${src}" >&2
+      exit 1
+    fi
+    cp -f "${src}" "${boost_root}/lib/"
+  done
+
+    export BOOST_ROOT="${boost_root}"
+}
+
+copy_or_thin_archive() {
+    local input="$1"
+    local arch="$2"
+    local output="$3"
+    local info
+
+    info="$(lipo -info "${input}" 2>/dev/null || true)"
+
+    if [[ "${info}" == Non-fat\ file:*" architecture: ${arch}" ]]; then
+        cp -f "${input}" "${output}"
+        return
+    fi
+
+    if [[ "${info}" == *"are:"* && "${info}" == *"${arch}"* ]]; then
+        lipo "${input}" -thin "${arch}" -output "${output}"
+        return
+    fi
+
+    echo "Archive ${input} does not contain architecture ${arch}: ${info}" >&2
+    exit 1
+}
+
+clean_dep_builds() {
+  make -f deps.mk clean-src
+}
+
+fix_glog_for_cmake4
+fix_deps_for_cmake4
+fix_xcode_deployment_target
+fix_opencc_for_ios
+fix_boost_compat
   
 # TODO: begin 改写文件内容
 cat << "MODULE" | tee ${RIME_ROOT}/librime/src/rime/core_module.cc
@@ -417,12 +540,9 @@ MODULE
 
 
 # librime dependences build
-if [[ ! -d ${RIME_ROOT}/.boost ]]
-then
-  mkdir ${RIME_ROOT}/.boost
-  cp -R ${RIME_ROOT}/boost-iosx/dest ${RIME_ROOT}/.boost
-fi
-export BOOST_ROOT=$RIME_ROOT/.boost/dest
+export PLATFORM=OS64COMBINED
+prepare_boost_root ios-arm64_x86_64-simulator
+clean_dep_builds
 make xcode/ios/deps
 
 # PLATFORM value means
@@ -445,6 +565,7 @@ cp -f ${RIME_ROOT}/librime/dist/lib/librime.a ${RIME_ROOT}/lib/librime_simulator
 
 # librime build: arm64
 export PLATFORM=OS64
+prepare_boost_root ios-arm64
 rm -rf ${RIME_ROOT}/librime/build ${RIME_ROOT}/librime/dist
 make xcode/ios/dist
 cp -f ${RIME_ROOT}/librime/dist/lib/librime.a ${RIME_ROOT}/lib/librime_arm64.a
@@ -476,14 +597,14 @@ do
 
     # 拆分模拟器编译文件
     rm -rf $RIME_ROOT/lib/${file}_x86.a
-    lipo $RIME_ROOT/lib/${file}.a \
-         -thin x86_64 \
-         -output $RIME_ROOT/lib/${file}_x86.a
+    copy_or_thin_archive $RIME_ROOT/lib/${file}.a \
+         x86_64 \
+         $RIME_ROOT/lib/${file}_x86.a
 
     rm -rf $RIME_ROOT/lib/${file}_arm64.a
-    lipo $RIME_ROOT/lib/${file}.a \
-         -thin arm64 \
-         -output $RIME_ROOT/lib/${file}_arm64.a
+    copy_or_thin_archive $RIME_ROOT/lib/${file}.a \
+         arm64 \
+         $RIME_ROOT/lib/${file}_arm64.a
 
     rm -rf ${RIME_ROOT}/Frameworks/${file}.xcframework
     xcodebuild -create-xcframework \
