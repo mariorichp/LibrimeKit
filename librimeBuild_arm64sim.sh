@@ -35,8 +35,13 @@ fix_deps_for_cmake4() {
         perl -0pi -e 's/\n\t-DHAVE_SNAPPY=0 \\\n/\n/g' "${deps_mk}"
         perl -0pi -e 's/\n\t-DHAVE_TCMALLOC=0 \\\n/\n/g' "${deps_mk}"
         perl -0pi -e 's/-DCMAKE_BUILD_TYPE:STRING="Release" \\\n\t/-DCMAKE_BUILD_TYPE:STRING="Release" \\\n\t-DCMAKE_POLICY_VERSION_MINIMUM=3.5 \\\n\t/g' "${deps_mk}"
-        perl -0pi -e "s|-DCMAKE_INSTALL_PREFIX:PATH=\"\\$\\(rime_root\\)\" \\\\\\n\\t|-DCMAKE_INSTALL_PREFIX:PATH=\"\\$\\(rime_root\\)\" \\\\\\n\\t-DPYTHON_EXECUTABLE:FILEPATH=${python3_bin} \\\\\\n\\t|g" "${deps_mk}"
+        PYTHON3_BIN="${python3_bin}" perl -0pi -e 's|-DCMAKE_INSTALL_PREFIX:PATH="\$\(rime_root\)" \\\n\t|-DCMAKE_INSTALL_PREFIX:PATH="\$\(rime_root\)" \\\n\t-DPYTHON_EXECUTABLE:FILEPATH=$ENV{PYTHON3_BIN} \\\n\t|g' "${deps_mk}"
         perl -0pi -e 's/-DLEVELDB_BUILD_TESTS:BOOL=OFF \\\n\t/-DLEVELDB_BUILD_TESTS:BOOL=OFF \\\n\t-DHAVE_CRC32C=0 \\\n\t-DHAVE_SNAPPY=0 \\\n\t-DHAVE_TCMALLOC=0 \\\n\t/g' "${deps_mk}"
+
+        if ! rg -q 'DPYTHON_EXECUTABLE:FILEPATH=' "${deps_mk}"; then
+            echo "Failed to inject PYTHON_EXECUTABLE into ${deps_mk}" >&2
+            exit 1
+        fi
     fi
 }
 
@@ -51,8 +56,14 @@ fix_xcode_deployment_target() {
 }
 
 fix_opencc_for_ios() {
+    local opencc_src_cmake="${RIME_ROOT}/librime/deps/opencc/src/CMakeLists.txt"
     local opencc_tools_cmake="${RIME_ROOT}/librime/deps/opencc/src/tools/CMakeLists.txt"
     local opencc_data_cmake="${RIME_ROOT}/librime/deps/opencc/data/CMakeLists.txt"
+
+    if [[ -f "${opencc_src_cmake}" ]]; then
+        perl -0pi -e 's/\nif\(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS"\)\n  add_subdirectory\(tools\)\nendif\(\)\n/\nadd_subdirectory(tools)\n/m' "${opencc_src_cmake}"
+        perl -0pi -e 's/\nadd_subdirectory\(tools\)\n/\nif(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")\n  add_subdirectory(tools)\nendif()\n/m' "${opencc_src_cmake}"
+    fi
 
     if [[ -f "${opencc_tools_cmake}" ]]; then
         perl -0pi -e 's/^if\(CMAKE_SYSTEM_NAME STREQUAL "iOS"\)\n  return\(\)\nendif\(\)\n\n//m' "${opencc_tools_cmake}"
