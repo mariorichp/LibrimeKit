@@ -38,7 +38,7 @@ fix_deps_for_cmake4() {
         PYTHON3_BIN="${python3_bin}" perl -0pi -e 's|-DCMAKE_INSTALL_PREFIX:PATH="\$\(rime_root\)" \\\n\t|-DCMAKE_INSTALL_PREFIX:PATH="\$\(rime_root\)" \\\n\t-DPYTHON_EXECUTABLE:FILEPATH=$ENV{PYTHON3_BIN} \\\n\t|g' "${deps_mk}"
         perl -0pi -e 's/-DLEVELDB_BUILD_TESTS:BOOL=OFF \\\n\t/-DLEVELDB_BUILD_TESTS:BOOL=OFF \\\n\t-DHAVE_CRC32C=0 \\\n\t-DHAVE_SNAPPY=0 \\\n\t-DHAVE_TCMALLOC=0 \\\n\t/g' "${deps_mk}"
 
-        if ! rg -q 'DPYTHON_EXECUTABLE:FILEPATH=' "${deps_mk}"; then
+        if ! grep -q 'DPYTHON_EXECUTABLE:FILEPATH=' "${deps_mk}"; then
             echo "Failed to inject PYTHON_EXECUTABLE into ${deps_mk}" >&2
             exit 1
         fi
@@ -71,11 +71,11 @@ fix_opencc_for_ios() {
     fi
 
     if [[ -f "${opencc_data_cmake}" ]]; then
-        if rg -q '^set\(OPENCC_DICT_BIN opencc_dict\)$' "${opencc_data_cmake}"; then
+        if grep -qx 'set(OPENCC_DICT_BIN opencc_dict)' "${opencc_data_cmake}"; then
             perl -0pi -e 's/^set\(OPENCC_DICT_BIN opencc_dict\)$/if(TARGET opencc_dict)\n  set(OPENCC_DICT_BIN \$<TARGET_FILE:opencc_dict>)\nelseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")\n  set(OPENCC_DICT_BIN "\${CMAKE_INSTALL_PREFIX}\/bin\/opencc_dict")\nelse()\n  set(OPENCC_DICT_BIN opencc_dict)\nendif()/m' "${opencc_data_cmake}"
         fi
 
-        if rg -q '\$<TARGET_FILE_DIR:\$\{OPENCC_DICT_BIN\}>' "${opencc_data_cmake}"; then
+        if grep -qF '$<TARGET_FILE_DIR:${OPENCC_DICT_BIN}>' "${opencc_data_cmake}"; then
             perl -0pi -e 's/\nadd_custom_target\(\n  copy_libopencc_to_dir_of_opencc_dict\n  COMMENT\n    "Copying libopencc to directory of opencc_dict"\n  COMMAND\n    \$\{CMAKE_COMMAND\} -E copy "\$<TARGET_FILE:libopencc>" "\$<TARGET_FILE_DIR:\$\{OPENCC_DICT_BIN\}>"\n\)\nif \(WIN32\)\n  set\(DICT_WIN32_DEPENDS copy_libopencc_to_dir_of_opencc_dict\)/\nif (WIN32 AND TARGET opencc_dict)\n  add_custom_target(\n    copy_libopencc_to_dir_of_opencc_dict\n    COMMENT\n      "Copying libopencc to directory of opencc_dict"\n    COMMAND\n      \${CMAKE_COMMAND} -E copy "\$<TARGET_FILE:libopencc>" "\$<TARGET_FILE_DIR:opencc_dict>"\n  )\n  set(DICT_WIN32_DEPENDS copy_libopencc_to_dir_of_opencc_dict)/s' "${opencc_data_cmake}"
         fi
     fi
