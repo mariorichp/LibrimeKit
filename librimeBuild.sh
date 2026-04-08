@@ -54,6 +54,7 @@ fix_xcode_deployment_target() {
     perl -0pi -e 's/\n\t-DDEPLOYMENT_TARGET=\$\(MINVERSION\) \\\n/\n/g' "${xcode_mk}"
     perl -0pi -e 's/-DPLATFORM=\$\(PLATFORM\) \\\n\t/-DPLATFORM=\$\(PLATFORM\) \\\n\t-DDEPLOYMENT_TARGET=\$\(MINVERSION\) \\\n\t/g' "${xcode_mk}"
     perl -0pi -e "s/RIME_CMAKE_FLAGS='\\$\\(IOS_CROSS_COMPILE_CMAKE_FLAGS\\)'/RIME_CMAKE_FLAGS='\\$\\(XCODE_IOS_CROSS_COMPILE_CMAKE_FLAGS\\)'/g" "${xcode_mk}"
+    perl -0pi -e 's/\n\tCFLAGS="-fembed-bitcode" \\\n\tCXXFLAGS="-stdlib=libc\+\+ -fembed-bitcode" \\\n\tLDFLAGS="-stdlib=libc\+\+ -fembed-bitcode"/\n\tCXXFLAGS="-stdlib=libc++" \\\n\tLDFLAGS="-stdlib=libc++"/g' "${xcode_mk}"
   fi
 }
 
@@ -80,6 +81,15 @@ fix_opencc_for_ios() {
     if grep -qF '$<TARGET_FILE_DIR:${OPENCC_DICT_BIN}>' "${opencc_data_cmake}"; then
       perl -0pi -e 's/\nadd_custom_target\(\n  copy_libopencc_to_dir_of_opencc_dict\n  COMMENT\n    "Copying libopencc to directory of opencc_dict"\n  COMMAND\n    \$\{CMAKE_COMMAND\} -E copy "\$<TARGET_FILE:libopencc>" "\$<TARGET_FILE_DIR:\$\{OPENCC_DICT_BIN\}>"\n\)\nif \(WIN32\)\n  set\(DICT_WIN32_DEPENDS copy_libopencc_to_dir_of_opencc_dict\)/\nif (WIN32 AND TARGET opencc_dict)\n  add_custom_target(\n    copy_libopencc_to_dir_of_opencc_dict\n    COMMENT\n      "Copying libopencc to directory of opencc_dict"\n    COMMAND\n      \${CMAKE_COMMAND} -E copy "\$<TARGET_FILE:libopencc>" "\$<TARGET_FILE_DIR:opencc_dict>"\n  )\n  set(DICT_WIN32_DEPENDS copy_libopencc_to_dir_of_opencc_dict)/s' "${opencc_data_cmake}"
     fi
+  fi
+}
+
+fix_leveldb_for_ios() {
+  local leveldb_cmake="${RIME_ROOT}/librime/deps/leveldb/CMakeLists.txt"
+
+  if [[ -f "${leveldb_cmake}" ]]; then
+    perl -0pi -e 's/\nif\(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS"\)\n  add_executable\(leveldbutil\n    "db\/leveldbutil\.cc"\n  \)\n  target_link_libraries\(leveldbutil leveldb\)\nendif\(\)\n/\nadd_executable(leveldbutil\n  "db\/leveldbutil.cc"\n)\ntarget_link_libraries(leveldbutil leveldb)\n/m' "${leveldb_cmake}"
+    perl -0pi -e 's/\nadd_executable\(leveldbutil\n  "db\/leveldbutil\.cc"\n\)\ntarget_link_libraries\(leveldbutil leveldb\)\n/\nif(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")\n  add_executable(leveldbutil\n    "db\/leveldbutil.cc"\n  )\n  target_link_libraries(leveldbutil leveldb)\nendif()\n/m' "${leveldb_cmake}"
   fi
 }
 
@@ -158,6 +168,7 @@ fix_glog_for_cmake4
 fix_deps_for_cmake4
 fix_xcode_deployment_target
 fix_opencc_for_ios
+fix_leveldb_for_ios
 fix_boost_compat
   
 # TODO: begin 改写文件内容
